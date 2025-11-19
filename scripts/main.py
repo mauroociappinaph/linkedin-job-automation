@@ -8,6 +8,7 @@ Tracks all applications in Google Sheets
 import os
 import json
 import time
+import random
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -20,7 +21,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 # Configuration
 DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires"
 MIN_SALARY_USD = 500
-MAX_APPLICATIONS_PER_DAY = 40
+MAX_APPLICATIONS_PER_DAY = random.randint(20, 30)  # Randomize between 20-30 for stealth
 APPLICATION_DELAY = 5  # seconds between applications
 
 # Target countries
@@ -251,3 +252,4 @@ class LinkedInJobAutomation:
 if __name__ == "__main__":
     automation = LinkedInJobAutomation()
     automation.run()
+
