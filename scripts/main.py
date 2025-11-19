@@ -111,11 +111,11 @@ class LinkedInJobAutomation:
         params = {
             'keywords': 'fullstack developer',
             'location': country,
-            'f_WT': '2',  # Remote/Hybrid only
+            'f_WT': '1',  # Remote/Hybrid only
             'f_EA': 'true',  # Easy Apply only
             'salary': f'{MIN_SALARY_USD}000-'  # Minimum salary filter
         }
-        
+       1
         # Construct URL with parameters
         url = base_url + "?" + "&".join([f"{k}={v}" for k, v in params.items()])
         self.driver.get(url)
@@ -252,4 +252,5 @@ class LinkedInJobAutomation:
 if __name__ == "__main__":
     automation = LinkedInJobAutomation()
     automation.run()
+
 
