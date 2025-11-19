@@ -1,0 +1,21 @@
+name: Daily Job Applications
+
+on:
+    schedule:
+        - cron: "11 08 * * *"
+    workflow_dispatch:
+
+jobs:
+    apply-jobs:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v3
+            - uses: actions/setup-python@v4
+              with:
+                  python-version: "3.11"
+            - run: pip install -r requirements.txt
+            - run: python scripts/main.py
+              env:
+                  LINKEDIN_SESSION: ${{ secrets.LINKEDIN_SESSION }}
+                  GOOGLE_SHEETS_CREDS: ${{ secrets.GOOGLE_SHEETS_CREDS }}
+                  GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
