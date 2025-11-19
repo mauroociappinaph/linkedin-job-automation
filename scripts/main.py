@@ -21,8 +21,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 # Configuration
 DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires"
 MIN_SALARY_USD = 500
-MAX_APPLICATIONS_PER_DAY = random.randint(20, 30)  # Randomize between 20-30 for stealth
-APPLICATION_DELAY = 5  # seconds between applications
+MAX_APPLICATIONS_PER_DAY = random.randint(20, 30)
+APPLICATION_DELAY = 5
 
 # Target countries
 TARGET_COUNTRIES = [
@@ -37,11 +37,11 @@ class LinkedInJobAutomation:
         self.sheets_client = None
         self.worksheet = None
         self.applications_count = 0
-        
+
     def initialize_driver(self):
         """Initialize Selenium WebDriver"""
         chrome_options = Options()
-        chrome_options.add_argument("--headless")  # Run in background
+        chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
@@ -50,7 +50,7 @@ class LinkedInJobAutomation:
         
         self.driver = webdriver.Chrome(options=chrome_options)
         self.driver.set_page_load_timeout(30)
-        
+
     def setup_google_sheets(self):
         """Setup Google Sheets connection using service account"""
         credentials_json = os.environ.get('GOOGLE_SHEETS_CREDS')
@@ -59,69 +59,89 @@ class LinkedInJobAutomation:
         if not credentials_json or not sheet_id:
             raise ValueError("Missing GOOGLE_SHEETS_CREDS or GOOGLE_SHEET_ID environment variables")
         
-        # Parse credentials
         credentials_dict = json.loads(credentials_json)
         scope = [
             'https://spreadsheets.google.com/feeds',
             'https://www.googleapis.com/auth/drive'
         ]
-        
         credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
         self.sheets_client = gspread.authorize(credentials)
         self.worksheet = self.sheets_client.open_by_key(sheet_id).sheet1
-        
-    def authenticate_linkedin(self):
-        """Authenticate to LinkedIn using email and password"""
-        email = os.environ.get('LINKEDIN_EMAIL')
-        password = os.environ.get('LINKEDIN_PASSWORD')
-        
-        if not email or not password:
-            raise ValueError("Missing LINKEDIN_EMAIL or LINKEDIN_PASSWORD environment variables")
-        
-        self.driver.get('https://www.linkedin.com/login')
-        time.sleep(2)
-        
-        # Enter email
-        email_field = WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.ID, "username"))
-        )
-        email_field.send_keys(email)
-        time.sleep(1)
-        
-        # Enter password
-        password_field = self.driver.find_element(By.ID, "password")
-        password_field.send_keys(password)
-        time.sleep(1)
-        
-        # Click login button
-        login_button = self.driver.find_element(By.XPATH, "//button[@type='submit']")
-        login_button.click()
-        
-        # Wait for feed to load
-        WebDriverWait(self.driver, 15).until(
-            EC.presence_of_element_located((By.XPATH, "//a[@href='/mynetwork/']" ))
-        )
-        
-        print("✓ Successfully authenticated to LinkedIn")
-        
+
+    def authenticate_linkedin_with_cookies(self):
+        """Authenticate to LinkedIn using cookies instead of email/password"""
+        try:
+            # Get cookies from environment variables
+            li_at = os.environ.get('LINKEDIN_LI_AT')
+            jsessionid = os.environ.get('LINKEDIN_JSESSIONID')
+            lidc = os.environ.get('LINKEDIN_LIDC')
+            
+            if not all([li_at, jsessionid, lidc]):
+                raise ValueError("Missing LinkedIn cookies (LINKEDIN_LI_AT, LINKEDIN_JSESSIONID, LINKEDIN_LIDC)")
+            
+            # Navigate to LinkedIn
+            self.driver.get('https://www.linkedin.com/feed/')
+            time.sleep(2)
+            
+            # Add cookies to the browser
+            self.driver.add_cookie({
+                'name': 'li_at',
+                'value': li_at,
+                'domain': '.linkedin.com',
+                'path': '/'
+            })
+            self.driver.add_cookie({
+                'name': 'JSESSIONID',
+                'value': jsessionid,
+                'domain': '.linkedin.com',
+                'path': '/'
+            })
+            self.driver.add_cookie({
+                'name': 'lidc',
+                'value': lidc,
+                'domain': '.linkedin.com',
+                'path': '/'
+            })
+            
+            # Refresh page to apply cookies
+            self.driver.refresh()
+            time.sleep(3)
+            
+            # Verify we're logged in by checking for mynetwork link
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, "//a[@href='/mynetwork/']"))
+                )
+                print("✓ Successfully authenticated to LinkedIn via cookies")
+            except:
+                print("✗ Failed to verify LinkedIn authentication")
+                raise Exception("Authentication verification failed")
+                
+        except Exception as e:
+            print(f"❌ Error during LinkedIn authentication: {str(e)}")
+            raise
+
     def search_jobs_in_country(self, country):
         """Search for jobs in a specific country with Easy Apply filter"""
-        # LinkedIn job search URL with filters
-        base_url = "https://www.linkedin.com/jobs/search/"
-        params = {
-            'keywords': 'fullstack developer',
-            'location': country,
-            'f_WT': '1',  # Remote/Hybrid only
-            'f_EA': 'true',  # Easy Apply only
-            'salary': f'{MIN_SALARY_USD}000-'  # Minimum salary filter
-        }
-        # Construct URL with parameters
-        url = base_url + "?" + "&".join([f"{k}={v}" for k, v in params.items()])
-        self.driver.get(url)
-        time.sleep(3)
-        
-        return self.get_job_listings()
-        
+        try:
+            base_url = "https://www.linkedin.com/jobs/search/"
+            params = {
+                'keywords': 'fullstack developer',
+                'location': country,
+                'f_WT': '1',
+                'f_EA': 'true',
+                'salary': f'{MIN_SALARY_USD}000-'
+            }
+            
+            url = base_url + "?" + "&".join([f"{k}={v}" for k, v in params.items()])
+            self.driver.get(url)
+            time.sleep(3)
+            
+            return self.get_job_listings()
+        except Exception as e:
+            print(f"✗ Error searching jobs in {country}: {str(e)}")
+            return []
+
     def get_job_listings(self):
         """Extract job listings from current page"""
         jobs = []
@@ -130,12 +150,11 @@ class LinkedInJobAutomation:
                 EC.presence_of_all_elements_located((By.CLASS_NAME, "base-card"))
             )
             
-            for card in job_cards[:10]:  # Limit to 10 per page
+            for card in job_cards[:10]:
                 try:
                     title = card.find_element(By.CLASS_NAME, "base-search-card__title").text
                     company = card.find_element(By.CLASS_NAME, "base-search-card__subtitle").text
                     link = card.find_element(By.CLASS_NAME, "base-card__full-link").get_attribute("href")
-                    
                     jobs.append({
                         'title': title,
                         'company': company,
@@ -143,12 +162,11 @@ class LinkedInJobAutomation:
                     })
                 except:
                     continue
-                    
         except:
             pass
-            
-        return jobs
         
+        return jobs
+
     def apply_to_job(self, job_url, job_title, company, country):
         """Apply to a specific job"""
         try:
@@ -172,64 +190,57 @@ class LinkedInJobAutomation:
             # Log to Google Sheets
             self.log_application(job_title, company, country, job_url, "Postulado")
             self.applications_count += 1
-            
             print(f"✓ Applied to {job_title} at {company}")
             return True
-            
         except Exception as e:
             print(f"✗ Failed to apply to {job_title}: {str(e)}")
             return False
-            
+
     def handle_application_form(self):
         """Handle form fields in application modal"""
         try:
-            # Wait for form to fully load
             time.sleep(2)
-            
-            # Auto-fill common fields
             text_inputs = self.driver.find_elements(By.XPATH, "//input[@type='text']")
             for inp in text_inputs:
                 try:
                     inp.send_keys("Automated")
                 except:
                     pass
-                    
         except:
             pass
-            
+
     def log_application(self, title, company, country, link, status):
         """Log application to Google Sheets"""
         try:
             today = datetime.now().strftime("%d/%m/%Y")
             row = [
-                self.applications_count + 1,  # N°
-                today,  # Fecha
-                title,  # Puesto
-                company,  # Empresa
-                country,  # País
-                link,  # Link
-                f"${MIN_SALARY_USD}+",  # Salario (approximate)
-                status,  # Estado
-                "Automated"  # Notas
+                self.applications_count + 1,
+                today,
+                title,
+                company,
+                country,
+                link,
+                f"${MIN_SALARY_USD}+",
+                status,
+                "Automated"
             ]
             self.worksheet.append_row(row)
             print(f"✓ Logged to Google Sheets: {title}")
         except Exception as e:
             print(f"✗ Failed to log to sheets: {str(e)}")
-            
+
     def run(self):
         """Main execution function"""
         try:
             print("🚀 Starting LinkedIn Job Automation...")
-            
             self.initialize_driver()
             self.setup_google_sheets()
-            self.authenticate_linkedin()
+            self.authenticate_linkedin_with_cookies()
             
             for country in TARGET_COUNTRIES:
                 if self.applications_count >= MAX_APPLICATIONS_PER_DAY:
                     break
-                    
+                
                 print(f"\n🔍 Searching jobs in {country}...")
                 jobs = self.search_jobs_in_country(country)
                 
@@ -238,10 +249,9 @@ class LinkedInJobAutomation:
                         break
                     
                     if self.apply_to_job(job['link'], job['title'], job['company'], country):
-                        time.sleep(APPLICATION_DELAY)  # Delay between applications
-                        
-            print(f"\n✅ Completed! Applied to {self.applications_count} jobs")
+                        time.sleep(APPLICATION_DELAY)
             
+            print(f"\n✅ Completed! Applied to {self.applications_count} jobs")
         except Exception as e:
             print(f"❌ Error: {str(e)}")
         finally:
@@ -251,6 +261,3 @@ class LinkedInJobAutomation:
 if __name__ == "__main__":
     automation = LinkedInJobAutomation()
     automation.run()
-
-
-
